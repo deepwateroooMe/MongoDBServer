@@ -7,6 +7,8 @@ using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace tetrisServer {
+
+// 这个类有点儿重复，是换汤不换药的另一种写法    
     public class MongoDBHelper {
 
         private string databaseName = string.Empty;

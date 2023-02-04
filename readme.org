@@ -130,13 +130,90 @@ namespace ETHotfix {
 - 除了自己的电脑安装有MongoDB数据库之外，服务器项目中因为要连接操纵电脑上数据库，可能还需要狠多插件的安装与配置，连接字符串，什么MongoDBClient之类的。这样的小项目狠容易就实现了，基本没有任何挑战
 - 关于小小 *文件服务器热更新资源包* ：
   - ET里 *客户端的资源包更新逻辑* 狠明白了：是 *下载服务器端的热更新资源MD5码表文件到客户端；客户端删除所有服务器中不存在的资源包；再一一比对存在于服务器端的资源文件，合成了一个需要下载更新的热更新资源链表；然后异步下载这些客户端落后于服务器的资源包们。*
-  - *服务器端的逻辑* ：还没有追踪，需要理明白。就是自己小小服务器的逻辑，ET中全部包括了。只是它包括得太多，项目又太大，以至于自己搞不清楚如果提练精华。。。。。
-    - 另则去查：文件服务器，热更新资源包，是如何保存到服务器(还是说没有逻辑，手动复制到服务器的？应该不至于会是这样的吧？)，服务器又是如何处理下载逻辑的？没有细看，要去找一下，思路理清楚，整合进来
-- *protobuf进程间消息传递协议:* 加进来。Protocol Buffers 是一种轻便高效的结构化数据存储格式，可以用于结构化数据串行化，或者说序列化。它很适合做数据存储或 RPC 数据交换格式。可用于通讯协议、数据存储等领域的语言无关、平台无关、可扩展的序列化结构数据格式。
-- TODO：如何把ET的头，关于ETTask异步包装的网络请求,关于新用户注册并保存用户信息进MongoDB数据库，用户登录，用户信息提取等，以最精简的方式整合到这里面来作为自己的小小服务器
-- 今天晚上把上面的两三点细节再翻一下，明天顺着这个思路来实现尽可能地多一点儿。
-
+  - *服务器端的逻辑* ：还没有追踪，需要理明白。
+    - *文件服务器，热更新资源包* ，是如何保存到服务器: ET是一个双端框架，它服务器里的资源包，也就是存放在服务器的某个目录位置。它是通过Unity里的打包工具一键打包保存在服务器的某个特定目录下，并自动生成服务器端各资源包资源文件的MD4版本号码表文件Version.txt。
+      - 这里还有点儿糊糊： *双端框架* 是说，服务器上也需要存放客户端的所有逻辑，比如客户端从unity中一键打包，保在某个特定的目录，用作服务器端的热更新资源包小小文件服务器？如果这样，下面两条就不需要了
+      - 所以这里的逻辑是否有点儿仓畜，不过不是重点。如果是自己的服务器，仍得上传呀，我不能云上服务器云上来项目。这个逻辑很容易实现。
+      - 同样对应的，如果实现服务器资源包的过滤更新等，小细节都可以自己去实现
+    - 这里没弄明白的是： *FileServer.exe是如何生成的？生成逻辑，相关原理在哪里？* 为什么示例项目中这个进程必须得运行起来？运行起来，它有个地址，才方便客户端MD5码表比对与下载更新必要的客户资源包？    
+    - *服务器又是如何处理下载逻辑的？* 它是存放在服务器上的某个目录，它是用UnityWebRequestAsync将目录中特定的文件下载到本地的
+    - 下面的，因为服务器是简单地将资源包存放在某个目录下，小文件服务器没有涉及任何的不涉及数据库存储，所以逻辑狠简单。下面的用不上
+      - MongoDB数据库是可以下载文件的，看见一个网络上的小例子：可以成为自己的一个参考：https://blog.csdn.net/y526089989/article/details/94452268?spm=1001.2101.3001.6650.15&utm_medium=distribute.pc_relevant.none-task-blog-2%7Edefault%7EBlogCommendFromBaidu%7ERate-15-94452268-blog-102048135.pc_relevant_3mothn_strategy_and_data_recovery&depth_1-utm_source=distribute.pc_relevant.none-task-blog-2%7Edefault%7EBlogCommendFromBaidu%7ERate-15-94452268-blog-102048135.pc_relevant_3mothn_strategy_and_data_recovery&utm_relevant_index=16
+      #+BEGIN_SRC csharp
+using MongoDB.Bson;
+using MongoDB.Driver;
+using MongoDB.Driver.GridFS;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
  
+namespace ESRTools
+{
+    public class MongoHelper
+    {
+        private static GridFSBucket bucket;
+ 
+        ///新版本方式 旧的不一样
+        public static IMongoDatabase GetDatabase()
+        {
+            //mongodb://user:pwd@127.0.0.1:2222/db
+            string connectionString = "mongodb://user:pwd@127.0.0.1:2222";
+            string dbName = "dbName";
+            // or use a connection string
+            var client = new MongoClient(connectionString);
+            // or, to connect to a replica set, with auto-discovery of the primary, supply a seed list of members
+            // var client = new MongoClient("mongodb://localhost:27017,localhost:27018,localhost:27019");
+            return client.GetDatabase(dbName);
+        }
+        public static void DownFile()
+        {
+            bucket = new GridFSBucket(GetDatabase()); // <<<<<<<<<<<<<<<<<<<< 
+            var fileid = new ObjectId("");
+            bucket.DownloadAsBytes(fileid);
+        }
+        public static  ObjectId GetUploadFileId(string fileName)
+        {
+            bucket = new GridFSBucket(GetDatabase());
+            var filter = Builders<GridFSFileInfo>.Filter.Eq(x => x.Filename, fileName);
+            //eq方法，就是等于，还有其他的方法，具体看Mongo的api文档
+            var sort = Builders<GridFSFileInfo>.Sort.Descending(x => x.UploadDateTime);
+            //按上传时间来倒叙一下
+            var options = new GridFSFindOptions
+            {
+                Limit = 1,
+                Sort = sort
+            };
+            using (var cursor = bucket.Find(filter, options))
+            {
+                var fileInfo = cursor.ToList().FirstOrDefault();
+                if (fileInfo != null && fileInfo.Length > 0)
+                {
+                    return fileInfo.Id;
+                }
+                return new ObjectId();
+            }
+        }
+}
+      #+END_SRC
+- *protobuf进程间消息传递协议:* 加进来。Protocol Buffers 是一种轻便高效的结构化数据存储格式，可以用于结构化数据串行化，或者说序列化。它很适合做数据存储或 RPC 数据交换格式。可用于通讯协议、数据存储等领域的语言无关、平台无关、可扩展的序列化结构数据格式。
+- TODO：如何把ET的头，关于ETTask异步包装的网络请求,关于新用户注册并保存用户信息进MongoDB数据库，用户登录，用户信息提取等，以最精简的方式整合到这里面来作为自己的小小服务器.
+- 那么这个服务器仍然会是一个双端服务器？就是说服务器上也包括了12个项目。服务器的资源包从unity里打，并直接到服务器的指定位置？
+- 这里说的是ET的头，自己整合改的过程中仍然成为了整个项目，只是自己只使用了它的注册用户与登录，单线程多进程通窍信，ETTask, RPC消息机制等。其它狠多多余的部分自己再慢慢理解把它们删除掉？这么看起来是最可行，最简单的
+- 那么就成为不得不问自己：明明打个包也狠简单，为什么就一定得用双端框架，而又接入自己游戏的全部逻辑都在热更新程序域里？就是，不想用它现热更新模式，仍想用自己之前的，因为简单；可是用之前的，关于用户帐户顶号的部分？
+- 是 *只要一个文件服务器，不要注册登录系统了吗？*
+  - *上传：* 只要文件服务器，那么就一键打包，每次都全部上传，不涉及增量上传的逻辑。因为服务器的码表文件是个文件，不想去修改文件，每次就上传全部，每次也上传新的码表文件　
+  - *下载：* 下载的逻辑客户端基本几乎全有了，不用做任何过多的工作
+- 可是文件服务器就是太简单太单薄了,可以作为尝试注册登录系统之后，若是还是想简单上线这个游戏，就退回这个最简单的思路与实现　
+- 感觉上面这些都基本上算是抓清楚了，少数一两个问题（*FileServer.exe是如何生成的？生成逻辑，相关原理在哪里？*）慢慢解决，下午晚上会试着实现注册登录帐户系统的移植与整合
+- 下面是服务器端的Version.txt看一下
+
+[[./pic/readme_20230203_121546.png]]
+
+
+
+
 
 
 
